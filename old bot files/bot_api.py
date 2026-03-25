@@ -20,7 +20,7 @@ app = FastAPI()
 #   setx OPENAI_API_KEY "sk-..."
 # Then restart terminal.
 client = OpenAI(
-    api_key="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")
+    api_key="SECRET_KEY")
 
 # =========================
 # Limits (server-side only)
