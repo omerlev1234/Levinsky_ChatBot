@@ -14,11 +14,6 @@ from openai import OpenAI
 # App + OpenAI client
 # =========================
 app = FastAPI()
-
-# Store your key in an environment variable (recommended):
-# Windows:
-#   setx OPENAI_API_KEY "sk-..."
-# Then restart terminal.
 client = OpenAI(
     api_key="SECRET_KEY")
 
