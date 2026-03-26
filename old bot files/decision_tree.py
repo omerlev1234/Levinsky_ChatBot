@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import joblib
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_validate
 from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.tree import DecisionTreeClassifier, plot_tree, _tree
 
@@ -61,7 +61,7 @@ tree = DecisionTreeClassifier(
 tree.fit(X_train, y_train)
 
 # ==========================================
-# 3. Rule Extraction (Requested Columns Only)
+# 3. Rule Extraction
 # ==========================================
 def _get_leaf_paths(decision_tree, feature_names):
     tree_ = decision_tree.tree_
@@ -93,15 +93,12 @@ def leaf_rule_table(tree, feature_names, X_data, y_data):
     paths = _get_leaf_paths(tree, feature_names)
     n_total = len(y_arr)
     rows = []
-
     for leaf_node, path in paths:
         mask = (leaf_ids == leaf_node)
         n = int(mask.sum())
         if n == 0: continue
         pred = int(tree.classes_[np.argmax(tree.tree_.value[leaf_node][0])])
         acc = float((y_arr[mask] == pred).mean())
-        
-        # EXACT COLUMNS REQUESTED
         rows.append({
             "rule": _path_to_rule(path),
             "predicted_class": "Positive" if pred == 1 else "Negative",
@@ -111,7 +108,24 @@ def leaf_rule_table(tree, feature_names, X_data, y_data):
         })
     return pd.DataFrame(rows).sort_values(["coverage_pct"], ascending=False).reset_index(drop=True)
 
-# Output Results
+# ==========================================
+# 4. Cross-Validation (New Section)
+# ==========================================
+print("\n=== Cross-Validation (5-Folds) ===")
+# We run CV on the training set to keep the test set "unseen"
+cv_results = cross_validate(
+    tree, X_train, y_train, cv=5, 
+    scoring=['accuracy', 'roc_auc', 'precision', 'recall']
+)
+
+print(f"Mean Accuracy:  {cv_results['test_accuracy'].mean():.4f}")
+print(f"Mean ROC-AUC:   {cv_results['test_roc_auc'].mean():.4f}")
+print(f"Mean Precision: {cv_results['test_precision'].mean():.4f}")
+print(f"Mean Recall:    {cv_results['test_recall'].mean():.4f}")
+
+# ==========================================
+# 5. Output Results
+# ==========================================
 df_test_rules = leaf_rule_table(tree, features, X_test, y_test)
 pd.set_option('display.max_colwidth', None)
 print("\n=== Rules on TEST ===")
