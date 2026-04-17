@@ -100,7 +100,6 @@ class LevinskyChatbotAllInOne {
 
       // Admin
       'log_retention_days' => 30,
-      'error_notification_gmails' => [],
     ];
   }
 
@@ -286,37 +285,8 @@ class LevinskyChatbotAllInOne {
     $out['store_history_pairs'] = isset($input['store_history_pairs']) ? max(0, min(5, intval($input['store_history_pairs']))) : $d['store_history_pairs'];
     $out['log_enabled'] = empty($input['log_enabled']) ? 0 : 1;
     $out['log_retention_days'] = isset($input['log_retention_days']) ? max(1, intval($input['log_retention_days'])) : $d['log_retention_days'];
-    $out['error_notification_gmails'] = $this->sanitize_gmail_addresses(isset($input['error_notification_gmails']) ? $input['error_notification_gmails'] : []);
 
     return $out;
-  }
-
-  /**
-   * Sanitizes a list of Gmail addresses from the admin settings form.
-   *
-   * Accepts either a textarea string (one email per line) or an array and
-   * returns a unique, lowercased list containing only valid gmail.com
-   * addresses.
-   */
-  private function sanitize_gmail_addresses($value) {
-    if (is_string($value)) {
-      $value = preg_split('/[\r\n,;]+/', $value);
-    }
-
-    if (!is_array($value)) {
-      return [];
-    }
-
-    $emails = [];
-    foreach ($value as $item) {
-      $email = strtolower(trim((string)$item));
-      if ($email === '') continue;
-      if (!is_email($email)) continue;
-      if (!preg_match('/@gmail\.com$/', $email)) continue;
-      $emails[] = $email;
-    }
-
-    return array_values(array_unique($emails));
   }
 
   /**
@@ -415,14 +385,6 @@ class LevinskyChatbotAllInOne {
               <br><br>
               Retention days: <input type="number" min="1" name="<?php echo esc_attr($opt); ?>[log_retention_days]" value="<?php echo (int)$cfg['log_retention_days']; ?>">
               <p class="description">The logs are saved in the DB and are automatically deleted (if needed) when calling the chat.</p>
-            </td>
-          </tr>
-
-          <tr>
-            <th scope="row">Error notifications</th>
-            <td>
-              <textarea rows="5" style="width:520px;" name="<?php echo esc_attr($opt); ?>[error_notification_gmails]"><?php echo esc_textarea(implode("\n", isset($cfg['error_notification_gmails']) && is_array($cfg['error_notification_gmails']) ? $cfg['error_notification_gmails'] : [])); ?></textarea>
-              <p class="description">Add one Gmail address per line. These addresses will be notified whenever the bot returns: <code>מצטער/ת, הייתה תקלה. נסו שוב בעוד רגע.</code></p>
             </td>
           </tr>
         </table>
@@ -1017,7 +979,6 @@ JS;
       $this->log_event('allowed_error', $user_key, $ip, $this->safe_excerpt($message, 1200), $this->safe_excerpt($reply, 1200), null, [
         'error' => $e->getMessage(),
       ]);
-      $this->send_error_notification_emails($message, $user_key, $ip, $ua, $e);
       return new \WP_REST_Response(['reply' => $reply], 200);
     }
   }
@@ -1323,7 +1284,19 @@ PROMPT;
     $urgency = $triage['care_urgency'] ?? 'UNCLEAR_NEED_MORE_INFO';
     return $ca[$urgency] ?? $ca['UNCLEAR_NEED_MORE_INFO'];
   }
+  private function inject_clinic_branding($text) {
+    if (!$text) return $text;
 
+    if (strpos($text, 'כמו המרפאה שלנו') !== false) {
+      return $text;
+    }
+
+    return str_replace(
+      'מרפאות לבריאות מינית',
+      'מרפאות לבריאות מינית (כמו המרפאה שלנו)',
+      $text
+    );
+  }
   /**
    * Builds the final reply text shown to the user.
    *
@@ -1365,6 +1338,9 @@ PROMPT;
 
     // What we store in history (keep it short but useful)
     $assistant_answer_for_history = $final;
+
+    $final = $this->inject_clinic_branding($final);
+    $assistant_answer_for_history = $this->inject_clinic_branding($assistant_answer_for_history);
 
     return [$final, $assistant_answer_for_history, $triage];
   }
@@ -1679,87 +1655,6 @@ PROMPT;
     ], [
       '%s','%s','%s','%s','%s','%s','%s','%s','%s'
     ]);
-  }
-
-  /**
-   * Sends alert emails when the chatbot hits the generic runtime failure path.
-   *
-   * The notifications are best-effort and must never interrupt the user-facing
-   * response if email delivery fails.
-   */
-  private function send_error_notification_emails($message, $user_key, $ip, $ua, \Exception $e) {
-    $cfg = $this->get_settings();
-    $recipients = isset($cfg['error_notification_gmails']) && is_array($cfg['error_notification_gmails'])
-      ? $cfg['error_notification_gmails']
-      : [];
-
-    if (empty($recipients)) return;
-
-    $site_name = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
-    $subject = sprintf('[%s] Levinsky Chatbot error', $site_name ?: 'WordPress');
-    $from_email = $this->get_notification_from_email();
-    $headers = [
-      'Content-Type: text/plain; charset=UTF-8',
-      sprintf('From: %s <%s>', $site_name ?: 'Levinsky Chatbot', $from_email),
-    ];
-    $body = implode("\n\n", [
-      'The chatbot returned the generic error message to a user.',
-      'Time (UTC): ' . gmdate('Y-m-d H:i:s'),
-      'Site: ' . home_url('/'),
-      'User key: ' . (string)$user_key,
-      'IP: ' . (string)$ip,
-      'User agent: ' . (string)$ua,
-      'Error: ' . $e->getMessage(),
-      'Message excerpt: ' . $this->safe_excerpt((string)$message, 1000),
-    ]);
-
-    $mail_error = null;
-    $mail_failed_handler = null;
-
-    try {
-      $mail_failed_handler = function($wp_error) use (&$mail_error) {
-        if (is_wp_error($wp_error)) {
-          $mail_error = $wp_error->get_error_message();
-        }
-      };
-
-      add_action('wp_mail_failed', $mail_failed_handler);
-      $sent = wp_mail($recipients, $subject, $body, $headers);
-      remove_action('wp_mail_failed', $mail_failed_handler);
-
-      $this->log_event($sent ? 'error_notification_sent' : 'error_notification_failed', $user_key, $ip, null, null, null, [
-        'recipients' => $recipients,
-        'subject' => $subject,
-        'from_email' => $from_email,
-        'mail_error' => $mail_error,
-      ]);
-    } catch (\Exception $mail_exception) {
-      if ($mail_failed_handler) {
-        remove_action('wp_mail_failed', $mail_failed_handler);
-      }
-      $this->log_event('error_notification_failed', $user_key, $ip, null, null, null, [
-        'recipients' => $recipients,
-        'subject' => $subject,
-        'from_email' => $from_email,
-        'mail_error' => $mail_exception->getMessage(),
-      ]);
-      // Ignore mail transport failures so the API response remains stable.
-    }
-  }
-
-  /**
-   * Returns a syntactically valid sender address for notification emails.
-   *
-   * Local WordPress installs often default to wordpress@localhost, which many
-   * mailers reject before delivery is attempted.
-   */
-  private function get_notification_from_email() {
-    $admin_email = sanitize_email((string)get_option('admin_email'));
-    if ($admin_email && is_email($admin_email)) {
-      return $admin_email;
-    }
-
-    return 'wordpress@example.com';
   }
 
   /**
