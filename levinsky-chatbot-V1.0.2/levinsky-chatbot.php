@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Levinsky Chatbot (All-in-One)
  * Description: All-in-one WordPress chatbot plugin: corner bubble UI + WP REST endpoint + OpenAI calls + server-side limits + DB logs/history. No local files.
- * Version: 1.0.1
+ * Version: 1.0.2
  */
 
 
