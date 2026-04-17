@@ -421,7 +421,7 @@ class LevinskyChatbotAllInOne {
             <th scope="row">Error notifications</th>
             <td>
               <textarea rows="5" style="width:520px;" name="<?php echo esc_attr($opt); ?>[error_notification_gmails]"><?php echo esc_textarea(implode("\n", isset($cfg['error_notification_gmails']) && is_array($cfg['error_notification_gmails']) ? $cfg['error_notification_gmails'] : [])); ?></textarea>
-              <p class="description">Add one email address per line. Invalid addresses are ignored. These addresses will be notified whenever the bot returns: <code>מצטער/ת, הייתה תקלה. נסו שוב בעוד רגע.</code></p>
+              <p class="description">Add one email address per line. These addresses will be notified whenever the bot returns: <code>מצטער/ת, הייתה תקלה. נסו שוב בעוד רגע.</code></p>
             </td>
           </tr>
         </table>
@@ -1328,7 +1328,7 @@ PROMPT;
     if (strpos($text, 'כמו המרפאה שלנו') !== false) {
       return $text;
     }
-    
+
     return str_replace(
       'מרפאות לבריאות מינית',
       'מרפאות לבריאות מינית (כמו המרפאה שלנו)',
